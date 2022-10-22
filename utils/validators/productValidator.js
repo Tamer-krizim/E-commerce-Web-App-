@@ -1,5 +1,6 @@
 /* eslint-disable eqeqeq */
-const { check } = require("express-validator");
+const { check, body } = require("express-validator");
+const slugify = require("slugify");
 const Category = require("../../modules/categoryModel");
 const subCategory = require("../../modules/subCategoryModel");
 
@@ -10,7 +11,11 @@ exports.createProductValidator = [
     .isLength({ min: 3 })
     .withMessage("must be at least 3 chars")
     .notEmpty()
-    .withMessage("Product required"),
+    .withMessage("Product required")
+    .custom((val, { req }) => {
+      req.body.slug = slugify(val);
+      return true;
+    }),
   check("description")
     .notEmpty()
     .withMessage("Product description is required")
@@ -32,13 +37,18 @@ exports.createProductValidator = [
     .withMessage("Product price must be a number")
     .isLength({ max: 32 })
     .withMessage("Too long price"),
-  check("priceAfterdiscount")
+  check("priceAfterDiscount")
     .optional()
     .default(null)
     .isNumeric()
     .withMessage("Product price after discount must be a number")
     .toFloat()
-    .custom(),
+    .custom((value, { req }) => {
+      if (req.body.price <= value) {
+        throw new Error("Price Agter Discount must be lower than price");
+      }
+      return true;
+    }),
   check("colors")
     .optional()
     .isArray()
@@ -74,6 +84,27 @@ exports.createProductValidator = [
             return Promise.reject(new Error(`Invalid subCategory ID`));
           }
         })
+        .custom((val, { req }) =>
+          subCategory
+            .find({ category: req.body.category })
+            .then((subcategoris) => {
+              const subCategoriesIdInDB = [];
+
+              subcategoris.forEach((subCats) => {
+                subCategoriesIdInDB.push(subCats._id.toString());
+              });
+
+              // this methode to check if all sub category is belong to the MAIN Category
+              const checker = (target, arr) =>
+                target.evrey((v) => arr.includes(v));
+
+              if (!checker(val, subCategoriesIdInDB)) {
+                return Promise.reject(
+                  new Error(`Subcategories not belong to category`)
+                );
+              }
+            })
+        )
     ),
   check("ratingsAverage")
     .optional()
@@ -97,6 +128,12 @@ exports.getProductValidator = [
 
 exports.updateProductValidator = [
   check("id").isMongoId().withMessage("Invalid ID formate"),
+  body("title")
+    .isOctal()
+    .custom((val, { req }) => {
+      req.body.slug = slugify(val);
+      return true;
+    }),
   validatorMiddleware,
 ];
 
